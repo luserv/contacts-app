@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Contact {
+  contact_id String @id
+  first_name String
+  middle_name String?
+  surname    String
+  status_id  String?        
+  marital_status MaritalStatus? @relation(fields: [status_id], references: [status_id])
+  national_identity_card NationalIdentityCard?
+}
+
+model MaritalStatus {
+  status_id      String  @id
+  marital_status String
+  contacts       Contact[]
+}
+
+model NationalIdentityCard {
+  id          Int    @id @default(autoincrement())
+  contact_id  String @unique
+  doc_type    String
+  card_number String
+  contact     Contact @relation(fields: [contact_id], references: [contact_id])
+}
