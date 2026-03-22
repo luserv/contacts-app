@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Contacts",
+    "slug": "contacts-app-offline",
+    "version": "1.0.0",
+    "scheme": "contacts",
+    "orientation": "portrait",
+    "platforms": ["android"],
+    "android": {
+      "package": "com.luserv2.contacts"
+    }
+  }
+}

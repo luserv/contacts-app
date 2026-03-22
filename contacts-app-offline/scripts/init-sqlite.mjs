@@ -71,8 +71,12 @@ if (shouldSeed) {
     VALUES (?, ?)
   `);
 
-  insertStatus.run('single', 'Single');
-  insertStatus.run('married', 'Married');
+  insertStatus.run('soltero', 'Soltero/a');
+  insertStatus.run('casado', 'Casado/a');
+  insertStatus.run('divorciado', 'Divorciado/a');
+  insertStatus.run('viudo', 'Viudo/a');
+  insertStatus.run('union_libre', 'Unión libre');
+  insertStatus.run('separado', 'Separado/a');
   console.log('✓ Marital statuses inserted');
 
   // Insert sample contacts
