@@ -2,7 +2,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useAuth } from '../../utils/authContext';
 import { DB_NAME, useContacts } from '../../utils/context';
 import { Lang, useI18n } from '../../utils/i18n';
 import { getScheduledBirthdayCount, notificationsAvailable, requestNotificationPermissions, scheduleAllBirthdayNotifications } from '../../utils/notifications';
@@ -18,8 +19,9 @@ export default function Config() {
   const [status, setStatus] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [notifCount, setNotifCount] = useState<number | null>(null);
-  const { contacts, fetchContacts } = useContacts();
+  const { contacts, fetchContacts, importVcf } = useContacts();
   const { t, lang, setLang } = useI18n();
+  const { user, licensed, signOutUser } = useAuth();
 
   useEffect(() => {
     fetchContacts();
@@ -30,6 +32,15 @@ export default function Config() {
     try {
       setIsLoading(true);
       setStatus(null);
+
+      // Electron
+      if (typeof window !== 'undefined' && (window as any).electronFS) {
+        const result = await (window as any).electronFS.exportDB();
+        if (result.canceled) return;
+        if (result.error) { setStatus(t.config.exportErrorPrefix + result.error); return; }
+        setStatus(t.config.exportSuccess);
+        return;
+      }
 
       const dbInfo = await FileSystem.getInfoAsync(DB_PATH);
       if (!dbInfo.exists) {
@@ -80,7 +91,53 @@ export default function Config() {
     }
   };
 
+  const handleImportVcf = async () => {
+    try {
+      setIsLoading(true);
+      setStatus(null);
+      let content: string | null = null;
+
+      if (typeof window !== 'undefined' && (window as any).electronFS) {
+        const result = await (window as any).electronFS.readVcf();
+        if (result.canceled) return;
+        if (result.error) { setStatus('Error: ' + result.error); return; }
+        content = result.content;
+      } else {
+        const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+        if (picked.canceled) return;
+        content = await FileSystem.readAsStringAsync(picked.assets[0].uri);
+      }
+
+      if (!content) return;
+      const { imported, skipped } = await importVcf(content);
+      setStatus(`VCF: ${imported} importados${skipped > 0 ? `, ${skipped} omitidos` : ''}.`);
+    } catch (e) {
+      setStatus('Error: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleImport = async () => {
+    // Electron: abrir diálogo nativo directamente (sin Alert intermedio)
+    if (typeof window !== 'undefined' && (window as any).electronFS) {
+      if (!confirm(t.config.importConfirm)) return;
+      try {
+        setIsLoading(true);
+        setStatus(null);
+        const result = await (window as any).electronFS.importDB();
+        if (result.canceled) return;
+        if (result.error) { setStatus(t.config.importErrorPrefix + result.error); return; }
+        setStatus(t.config.importSuccess);
+        await fetchContacts();
+      } catch (e) {
+        setStatus(t.config.importErrorPrefix + (e instanceof Error ? e.message : String(e)));
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     Alert.alert(
       t.config.importTitle,
       t.config.importConfirm,
@@ -127,7 +184,7 @@ export default function Config() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>{t.config.title}</Text>
 
       {/* Idioma */}
@@ -170,10 +227,34 @@ export default function Config() {
         )}
       </View>
 
+      {/* Cuenta */}
+      <View style={[styles.card, { marginBottom: 16 }]}>
+        <Text style={styles.cardTitle}>Cuenta</Text>
+        <View style={styles.accountRow}>
+          <View>
+            <Text style={styles.accountEmail}>{user?.email}</Text>
+            <Text style={styles.accountLicense}>
+              {licensed ? '✅ Licencia activa' : '🔒 Plan gratuito'}
+            </Text>
+          </View>
+        </View>
+        <Pressable style={[styles.button, styles.buttonSignOut]} onPress={signOutUser}>
+          <Text style={styles.buttonText}>Cerrar sesión</Text>
+        </Pressable>
+      </View>
+
       {/* Base de datos */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>{t.config.database}</Text>
         <Text style={styles.cardDesc}>{t.config.databaseDesc}</Text>
+
+        <Pressable
+          style={[styles.button, styles.buttonVcf, isLoading && styles.buttonDisabled]}
+          onPress={handleImportVcf}
+          disabled={isLoading}
+        >
+          <Text style={styles.buttonText}>{t.config.importVcfBtn}</Text>
+        </Pressable>
 
         <Pressable
           style={[styles.button, styles.buttonExport, isLoading && styles.buttonDisabled]}
@@ -197,7 +278,7 @@ export default function Config() {
           </View>
         )}
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -205,7 +286,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F2F2F7',
+  },
+  content: {
     padding: 20,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 28,
@@ -264,6 +348,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
+  buttonVcf: { backgroundColor: '#5856D6' },
+  buttonSignOut: { backgroundColor: '#FF3B30' },
+  accountRow: { marginBottom: 16 },
+  accountEmail: { fontSize: 15, fontWeight: '600', color: '#000', marginBottom: 4 },
+  accountLicense: { fontSize: 13, color: '#8E8E93' },
   buttonNotif: { backgroundColor: '#FF9500' },
   buttonExport: { backgroundColor: '#007AFF' },
   buttonImport: { backgroundColor: '#34C759' },

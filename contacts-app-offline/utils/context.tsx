@@ -1,150 +1,10 @@
-import { SQLiteDatabase, useSQLiteContext } from 'expo-sqlite';
-import React, { createContext, ReactNode, useContext, useState } from 'react';
+import React, { createContext, ReactNode, useCallback, useContext, useState } from 'react';
+import { db } from './db';
 
 export const DB_NAME = 'contacts.db';
 
-export async function initializeDatabase(db: SQLiteDatabase) {
-    await db.execAsync(`
-  CREATE TABLE IF NOT EXISTS marital_status (
-    status_id TEXT PRIMARY KEY,
-    marital_status TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS contact (
-    contact_id TEXT PRIMARY KEY,
-    first_name TEXT NOT NULL,
-    middle_name TEXT,
-    surname TEXT NOT NULL,
-    birthdate TEXT,
-    gender TEXT CHECK(gender IN ('male', 'female')),
-    status_id TEXT,
-    FOREIGN KEY (status_id) REFERENCES marital_status (status_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS contact_phone (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id TEXT NOT NULL,
-    phone TEXT NOT NULL,
-    label TEXT,
-    FOREIGN KEY (contact_id) REFERENCES contact(contact_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS contact_email (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id TEXT NOT NULL,
-    email TEXT NOT NULL,
-    label TEXT,
-    FOREIGN KEY (contact_id) REFERENCES contact(contact_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS national_identity_card (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id TEXT NOT NULL,
-    doc_type TEXT NOT NULL,
-    card_number TEXT NOT NULL,
-    issue_date TEXT,
-    expiry_date TEXT,
-    FOREIGN KEY (contact_id) REFERENCES contact (contact_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS relationship_type (
-    type_id TEXT PRIMARY KEY,
-    label TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS contact_relationship (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id TEXT NOT NULL,
-    related_contact_id TEXT NOT NULL,
-    type_id TEXT NOT NULL,
-    FOREIGN KEY (contact_id) REFERENCES contact(contact_id),
-    FOREIGN KEY (related_contact_id) REFERENCES contact(contact_id),
-    FOREIGN KEY (type_id) REFERENCES relationship_type(type_id),
-    UNIQUE(contact_id, related_contact_id, type_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS organization (
-    organization_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
-  );
-
-  CREATE TABLE IF NOT EXISTS contact_organization (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id TEXT NOT NULL,
-    organization_id TEXT NOT NULL,
-    achievement TEXT NOT NULL,
-    date TEXT,
-    FOREIGN KEY (contact_id) REFERENCES contact(contact_id),
-    FOREIGN KEY (organization_id) REFERENCES organization(organization_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS contact_keyword (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_id TEXT NOT NULL,
-    keyword TEXT NOT NULL,
-    UNIQUE(contact_id, keyword),
-    FOREIGN KEY (contact_id) REFERENCES contact(contact_id)
-  );
-  `);
-
-    // Migraciones: agregar columnas si no existen
-    try { await db.execAsync('ALTER TABLE contact ADD COLUMN birthdate TEXT;'); } catch (_) {}
-    try { await db.execAsync("ALTER TABLE contact ADD COLUMN gender TEXT CHECK(gender IN ('male', 'female'));"); } catch (_) {}
-    // Migración national_identity_card: eliminar UNIQUE(contact_id), agregar issue_date y expiry_date
-    // Si ADD COLUMN issue_date tiene éxito → tabla en esquema viejo → recrear sin UNIQUE
-    try {
-        await db.execAsync('ALTER TABLE national_identity_card ADD COLUMN issue_date TEXT;');
-        // Llegamos aquí → esquema viejo, necesita recrearse sin UNIQUE
-        await db.execAsync('ALTER TABLE national_identity_card ADD COLUMN expiry_date TEXT;');
-        await db.execAsync(`CREATE TABLE national_identity_card_tmp (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            contact_id TEXT NOT NULL,
-            doc_type TEXT NOT NULL,
-            card_number TEXT NOT NULL,
-            issue_date TEXT,
-            expiry_date TEXT,
-            FOREIGN KEY (contact_id) REFERENCES contact (contact_id)
-        )`);
-        await db.execAsync(`INSERT INTO national_identity_card_tmp (id, contact_id, doc_type, card_number)
-            SELECT id, contact_id, doc_type, card_number FROM national_identity_card`);
-        await db.execAsync('DROP TABLE national_identity_card');
-        await db.execAsync('ALTER TABLE national_identity_card_tmp RENAME TO national_identity_card');
-    } catch (_) {
-        // Columna ya existe → migración ya corrió. Asegurar expiry_date por si fue parcial.
-        try { await db.execAsync('ALTER TABLE national_identity_card ADD COLUMN expiry_date TEXT;'); } catch (_) {}
-    }
-
-    await db.execAsync(`
-    INSERT OR IGNORE INTO marital_status (status_id, marital_status) VALUES
-      ('soltero', 'Soltero/a'),
-      ('casado', 'Casado/a'),
-      ('divorciado', 'Divorciado/a'),
-      ('viudo', 'Viudo/a'),
-      ('union_libre', 'Unión libre'),
-      ('separado', 'Separado/a');
-  `);
-
-    await db.execAsync(`
-    INSERT OR IGNORE INTO relationship_type (type_id, label) VALUES
-      ('padre', 'Padre'),
-      ('madre', 'Madre'),
-      ('hijo', 'Hijo'),
-      ('hija', 'Hija'),
-      ('hermano', 'Hermano'),
-      ('hermana', 'Hermana'),
-      ('tio', 'Tío'),
-      ('tia', 'Tía'),
-      ('sobrino', 'Sobrino'),
-      ('sobrina', 'Sobrina'),
-      ('abuelo', 'Abuelo'),
-      ('abuela', 'Abuela'),
-      ('primo', 'Primo'),
-      ('prima', 'Prima'),
-      ('conyuge', 'Cónyuge'),
-      ('nieto', 'Nieto'),
-      ('nieta', 'Nieta');
-  `);
-}
+// No-op: la inicialización ocurre en db.native.ts (Android/iOS) y electron/main.js (desktop)
+export async function initializeDatabase() {}
 
 interface Contact {
     contact_id: string;
@@ -212,6 +72,19 @@ export interface ContactKeyword {
     keyword: string;
 }
 
+export interface ContactNote {
+    id: number;
+    contact_id: string;
+    note: string;
+}
+
+export interface ContactUrl {
+    id: number;
+    contact_id: string;
+    url: string;
+    label?: string;
+}
+
 interface ContactsContextType {
     contacts: Contact[];
     fetchContacts: () => Promise<void>;
@@ -236,6 +109,7 @@ interface ContactsContextType {
     addContactOrganization: (contactId: string, orgName: string, achievement: string, date?: string) => Promise<boolean>;
     removeContactOrganization: (id: number) => Promise<boolean>;
     searchOrganizations: (query: string) => Promise<{ organization_id: string; name: string }[]>;
+    deleteContact: (id: string) => Promise<boolean>;
     updateContact: (id: string, data: {
         first_name: string;
         middle_name?: string;
@@ -253,6 +127,13 @@ interface ContactsContextType {
     getContactKeywords: (contactId: string) => Promise<ContactKeyword[]>;
     addContactKeyword: (contactId: string, keyword: string) => Promise<boolean>;
     removeContactKeyword: (id: number) => Promise<boolean>;
+    getContactNotes: (contactId: string) => Promise<ContactNote[]>;
+    addContactNote: (contactId: string, note: string) => Promise<boolean>;
+    removeContactNote: (id: number) => Promise<boolean>;
+    getContactUrls: (contactId: string) => Promise<ContactUrl[]>;
+    addContactUrl: (contactId: string, url: string, label?: string) => Promise<boolean>;
+    removeContactUrl: (id: number) => Promise<boolean>;
+    importVcf: (content: string) => Promise<{ imported: number; skipped: number }>;
     searchContacts: (query: string) => Promise<Contact[]>;
 }
 
@@ -312,17 +193,16 @@ function getInverseType(typeId: string, gender: 'male' | 'female' | null): strin
 const ContactsContext = createContext<ContactsContextType | undefined>(undefined);
 
 export function ContactsProvider({ children }: { children: ReactNode }) {
-    const db = useSQLiteContext();
     const [contacts, setContacts] = useState<Contact[]>([]);
 
-    const fetchContacts = async () => {
+    const fetchContacts = useCallback(async () => {
         try {
             const result = await db.getAllAsync<Contact>('SELECT * FROM contact ORDER BY first_name ASC;');
             setContacts(result);
         } catch (e) {
             console.error(e);
         }
-    };
+    }, []);
 
     const createContact = async (data: {
         first_name: string;
@@ -513,6 +393,21 @@ export function ContactsProvider({ children }: { children: ReactNode }) {
             console.error(e);
             return [];
         }
+    };
+
+    const deleteContact = async (id: string): Promise<boolean> => {
+        try {
+            await db.runAsync('DELETE FROM contact_relationship WHERE contact_id = ? OR related_contact_id = ?', id, id);
+            await db.runAsync('DELETE FROM contact_phone WHERE contact_id = ?', id);
+            await db.runAsync('DELETE FROM contact_email WHERE contact_id = ?', id);
+            await db.runAsync('DELETE FROM contact_keyword WHERE contact_id = ?', id);
+            await db.runAsync('DELETE FROM contact_note WHERE contact_id = ?', id);
+            await db.runAsync('DELETE FROM contact_url WHERE contact_id = ?', id);
+            await db.runAsync('DELETE FROM national_identity_card WHERE contact_id = ?', id);
+            await db.runAsync('DELETE FROM contact_organization WHERE contact_id = ?', id);
+            await db.runAsync('DELETE FROM contact WHERE contact_id = ?', id);
+            return true;
+        } catch (e) { console.error(e); return false; }
     };
 
     const updateContact = async (id: string, data: {
@@ -727,7 +622,122 @@ export function ContactsProvider({ children }: { children: ReactNode }) {
         } catch (e) { console.error(e); return false; }
     };
 
-    const searchContacts = async (query: string): Promise<Contact[]> => {
+    const getContactNotes = async (contactId: string): Promise<ContactNote[]> => {
+        try {
+            return await db.getAllAsync<ContactNote>(
+                'SELECT * FROM contact_note WHERE contact_id = ? ORDER BY id ASC', contactId
+            );
+        } catch (e) { console.error(e); return []; }
+    };
+
+    const addContactNote = async (contactId: string, note: string): Promise<boolean> => {
+        try {
+            await db.runAsync('INSERT INTO contact_note (contact_id, note) VALUES (?, ?)', contactId, note);
+            return true;
+        } catch (e) { console.error(e); return false; }
+    };
+
+    const removeContactNote = async (id: number): Promise<boolean> => {
+        try {
+            await db.runAsync('DELETE FROM contact_note WHERE id = ?', id);
+            return true;
+        } catch (e) { console.error(e); return false; }
+    };
+
+    const getContactUrls = async (contactId: string): Promise<ContactUrl[]> => {
+        try {
+            return await db.getAllAsync<ContactUrl>(
+                'SELECT * FROM contact_url WHERE contact_id = ? ORDER BY id ASC', contactId
+            );
+        } catch (e) { console.error(e); return []; }
+    };
+
+    const addContactUrl = async (contactId: string, url: string, label?: string): Promise<boolean> => {
+        try {
+            await db.runAsync(
+                'INSERT INTO contact_url (contact_id, url, label) VALUES (?, ?, ?)',
+                contactId, url, label ?? null
+            );
+            return true;
+        } catch (e) { console.error(e); return false; }
+    };
+
+    const removeContactUrl = async (id: number): Promise<boolean> => {
+        try {
+            await db.runAsync('DELETE FROM contact_url WHERE id = ?', id);
+            return true;
+        } catch (e) { console.error(e); return false; }
+    };
+
+    const importVcf = async (content: string): Promise<{ imported: number; skipped: number }> => {
+        const { parseVcf } = await import('./vcfImport');
+        const cards = parseVcf(content);
+        let imported = 0;
+        let skipped = 0;
+
+        for (const card of cards) {
+            try {
+                const id = 'c' + Date.now() + Math.random().toString(36).slice(2, 6);
+                await db.runAsync(
+                    'INSERT INTO contact (contact_id, first_name, middle_name, surname, birthdate) VALUES (?, ?, ?, ?, ?)',
+                    id, card.first_name, card.middle_name ?? null, card.surname, card.birthdate ?? null
+                );
+
+                for (const p of card.phones) {
+                    await db.runAsync(
+                        'INSERT INTO contact_phone (contact_id, phone, label) VALUES (?, ?, ?)',
+                        id, p.phone, p.label ?? null
+                    );
+                }
+                for (const e of card.emails) {
+                    await db.runAsync(
+                        'INSERT INTO contact_email (contact_id, email, label) VALUES (?, ?, ?)',
+                        id, e.email, e.label ?? null
+                    );
+                }
+                for (const n of card.notes) {
+                    await db.runAsync('INSERT INTO contact_note (contact_id, note) VALUES (?, ?)', id, n);
+                }
+                for (const u of card.urls) {
+                    await db.runAsync(
+                        'INSERT INTO contact_url (contact_id, url, label) VALUES (?, ?, ?)',
+                        id, u.url, u.label ?? null
+                    );
+                }
+                if (card.identity_card) {
+                    await db.runAsync(
+                        'INSERT INTO national_identity_card (contact_id, doc_type, card_number) VALUES (?, ?, ?)',
+                        id, 'Cédula', card.identity_card.card_number
+                    );
+                }
+                if (card.org) {
+                    const orgId = 'org_' + Date.now() + Math.random().toString(36).slice(2, 6);
+                    await db.runAsync(
+                        'INSERT OR IGNORE INTO organization (organization_id, name) VALUES (?, ?)',
+                        orgId, card.org.name
+                    );
+                    const org = await db.getFirstAsync<{ organization_id: string }>(
+                        'SELECT organization_id FROM organization WHERE name = ?', card.org.name
+                    );
+                    if (org) {
+                        await db.runAsync(
+                            'INSERT INTO contact_organization (contact_id, organization_id, achievement, date) VALUES (?, ?, ?, ?)',
+                            id, org.organization_id, card.org.achievement, card.org.date ?? null
+                        );
+                    }
+                }
+                imported++;
+            } catch (e) {
+                console.error('Error importando contacto:', e);
+                skipped++;
+            }
+        }
+
+        await fetchContacts();
+        return { imported, skipped };
+    };
+
+    const searchContacts = useCallback(async (query: string): Promise<Contact[]> => {
         try {
             const q = `%${query}%`;
             return await db.getAllAsync<Contact>(
@@ -738,7 +748,7 @@ export function ContactsProvider({ children }: { children: ReactNode }) {
                 q, q, q, q
             );
         } catch (e) { console.error(e); return []; }
-    };
+    }, []);
 
     return (
         <ContactsContext.Provider value={{
@@ -754,6 +764,7 @@ export function ContactsProvider({ children }: { children: ReactNode }) {
             getIdentityCards,
             addIdentityCard,
             deleteIdentityCard,
+            deleteContact,
             updateContact,
             getContactOrganizations,
             addContactOrganization,
@@ -768,6 +779,13 @@ export function ContactsProvider({ children }: { children: ReactNode }) {
             getContactKeywords,
             addContactKeyword,
             removeContactKeyword,
+            getContactNotes,
+            addContactNote,
+            removeContactNote,
+            getContactUrls,
+            addContactUrl,
+            removeContactUrl,
+            importVcf,
             searchContacts,
         }}>
             {children}

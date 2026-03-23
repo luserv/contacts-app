@@ -1,0 +1,107 @@
+// Android / iOS: usa expo-auth-session para Google OAuth (requiere dev build, no Expo Go)
+import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+import { useRouter } from 'expo-router';
+import React, { useEffect } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { auth } from '../utils/firebase';
+import { useAuth } from '../utils/authContext';
+
+const WEB_CLIENT_ID = '461026464928-uqthqedb0oekcl2rgch1ggq9rkf6f3gq.apps.googleusercontent.com';
+const ANDROID_CLIENT_ID = 'REEMPLAZA_CON_TU_ANDROID_CLIENT_ID.apps.googleusercontent.com';
+
+// Intentar cargar expo-auth-session - falla silenciosamente en Expo Go
+// (expo-crypto requiere módulos nativos no incluidos en Expo Go)
+let _useAuthRequest: any = null;
+try {
+  _useAuthRequest = require('expo-auth-session/providers/google').useAuthRequest;
+} catch {
+  // Expo Go no tiene ExpoCryptoAES - Google Sign-In requiere un dev build
+}
+
+// Hook estable: la condición nunca cambia en el ciclo de vida de la app
+function useGoogleAuth() {
+  if (_useAuthRequest) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    return _useAuthRequest({ webClientId: WEB_CLIENT_ID, androidClientId: ANDROID_CLIENT_ID }) as [any, any, any];
+  }
+  return [null, null, async () => ({ type: 'cancel' as const })];
+}
+
+export default function LoginScreen() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const [request, response, promptAsync] = useGoogleAuth();
+
+  useEffect(() => {
+    if (!loading && user) router.replace('/');
+  }, [user, loading]);
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { id_token } = response.params;
+      const credential = GoogleAuthProvider.credential(id_token);
+      signInWithCredential(auth, credential).catch((e: any) => setError(e.message));
+    }
+    if (response?.type === 'error') setError(response.error?.message ?? 'Error al iniciar sesión');
+  }, [response]);
+
+  const handleSignIn = async () => {
+    if (!_useAuthRequest) {
+      setError('Google Sign-In requiere un Development Build (no funciona en Expo Go).');
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      await promptAsync();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) {
+    return <View style={styles.center}><ActivityIndicator size="large" color="#007AFF" /></View>;
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.card}>
+        <View style={styles.iconPlaceholder}>
+          <Text style={styles.iconText}>👥</Text>
+        </View>
+        <Text style={styles.title}>Contacts</Text>
+        <Text style={styles.subtitle}>Tu agenda personal, siempre contigo.</Text>
+        <Pressable style={[styles.googleBtn, busy && styles.btnDisabled]} onPress={handleSignIn} disabled={busy}>
+          {busy
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.googleBtnText}>🔑 Continuar con Google</Text>}
+        </Pressable>
+        {error && <Text style={styles.error}>{error}</Text>}
+        <Text style={styles.disclaimer}>Al iniciar sesión aceptas que tus datos de licencia se almacenen de forma segura.</Text>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  card: {
+    backgroundColor: '#fff', borderRadius: 24, padding: 32,
+    width: '100%', maxWidth: 380, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8,
+  },
+  iconPlaceholder: { width: 88, height: 88, borderRadius: 44, backgroundColor: '#E5F0FF', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  iconText: { fontSize: 40 },
+  title: { fontSize: 28, fontWeight: '700', color: '#000', marginBottom: 8 },
+  subtitle: { fontSize: 15, color: '#8E8E93', textAlign: 'center', marginBottom: 32 },
+  googleBtn: { backgroundColor: '#007AFF', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 24, width: '100%', alignItems: 'center', marginBottom: 16 },
+  btnDisabled: { opacity: 0.6 },
+  googleBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  error: { color: '#FF3B30', fontSize: 13, textAlign: 'center', marginBottom: 12 },
+  disclaimer: { fontSize: 12, color: '#C7C7CC', textAlign: 'center', marginTop: 8 },
+});

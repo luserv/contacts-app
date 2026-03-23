@@ -1,29 +1,60 @@
 import { Platform } from 'react-native';
 
-// expo-notifications no está disponible en Expo Go (SDK 53+) para Android push.
-// Las notificaciones locales programadas sí funcionan, pero el módulo falla al importarse
-// en Expo Go porque intenta registrar push tokens automáticamente.
-// Usamos require() con try-catch para evitar que crashee la app.
+const isWeb = Platform.OS === 'web';
+
+// ─── Web / Electron ──────────────────────────────────────────────────────────
+
+async function webRequestPermission(): Promise<boolean> {
+    if (!('Notification' in window)) return false;
+    if (Notification.permission === 'granted') return true;
+    const result = await Notification.requestPermission();
+    return result === 'granted';
+}
+
+function showWebNotification(title: string, body: string) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    new Notification(title, { body });
+}
+
+async function checkAndShowBirthdayNotifications() {
+    const electronNotif = (window as any).electronNotif;
+    if (!electronNotif) return;
+    const contacts: { first_name: string; surname: string; birthdate: string }[] =
+        await electronNotif.checkBirthdays();
+    for (const c of contacts) {
+        showWebNotification(
+            '🎂 Cumpleaños mañana',
+            `${c.first_name} ${c.surname} cumple años mañana.`
+        );
+    }
+}
+
+// ─── Android / iOS ───────────────────────────────────────────────────────────
 
 type NotificationsModule = typeof import('expo-notifications');
 let N: NotificationsModule | null = null;
 
-try {
-    N = require('expo-notifications') as NotificationsModule;
-    N.setNotificationHandler({
-        handleNotification: async () => ({
-            shouldShowAlert: true,
-            shouldPlaySound: true,
-            shouldSetBadge: false,
-        }),
-    });
-} catch (_) {
-    // No disponible en este entorno (Expo Go en Android)
+if (!isWeb) {
+    try {
+        N = require('expo-notifications') as NotificationsModule;
+        N.setNotificationHandler({
+            handleNotification: async () => ({
+                shouldShowAlert: true,
+                shouldPlaySound: true,
+                shouldSetBadge: false,
+            }),
+        });
+    } catch (_) {}
 }
 
-export const notificationsAvailable = N !== null;
+// ─── API pública ─────────────────────────────────────────────────────────────
+
+export const notificationsAvailable = isWeb
+    ? (typeof window !== 'undefined' && 'Notification' in window)
+    : N !== null;
 
 export async function requestNotificationPermissions(): Promise<boolean> {
+    if (isWeb) return webRequestPermission();
     if (!N) return false;
     try {
         if (Platform.OS === 'android') {
@@ -66,6 +97,16 @@ interface ContactForNotification {
 }
 
 export async function scheduleAllBirthdayNotifications(contacts: ContactForNotification[]): Promise<number> {
+    if (isWeb) {
+        // En Electron: pedir permiso y mostrar las de mañana de inmediato.
+        // Las futuras se verifican en cada inicio de la app.
+        const granted = await webRequestPermission();
+        if (!granted) return 0;
+        await checkAndShowBirthdayNotifications();
+        // Contar cuántos tienen cumpleaños registrado
+        return contacts.filter(c => c.birthdate).length;
+    }
+
     if (!N) return 0;
     try {
         const scheduled = await N.getAllScheduledNotificationsAsync();
@@ -109,13 +150,14 @@ export async function scheduleAllBirthdayNotifications(contacts: ContactForNotif
 }
 
 export async function cancelBirthdayNotification(contactId: string): Promise<void> {
-    if (!N) return;
+    if (isWeb || !N) return;
     try {
         await N.cancelScheduledNotificationAsync(`birthday_${contactId}`);
     } catch (_) {}
 }
 
 export async function getScheduledBirthdayCount(): Promise<number> {
+    if (isWeb) return 0;
     if (!N) return 0;
     try {
         const scheduled = await N.getAllScheduledNotificationsAsync();
@@ -123,4 +165,12 @@ export async function getScheduledBirthdayCount(): Promise<number> {
     } catch (_) {
         return 0;
     }
+}
+
+// En Electron: verificar cumpleaños al arrancar la app (llamar desde _layout.tsx)
+export async function checkBirthdaysOnStartup(): Promise<void> {
+    if (!isWeb) return;
+    const granted = await webRequestPermission();
+    if (!granted) return;
+    await checkAndShowBirthdayNotifications();
 }

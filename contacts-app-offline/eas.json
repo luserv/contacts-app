@@ -1,8 +1,16 @@
 {
     "cli": {
-        "version": ">= 7.0.0"
+        "version": ">= 7.0.0",
+        "appVersionSource": "local"
     },
     "build": {
+        "development": {
+            "developmentClient": true,
+            "distribution": "internal",
+            "android": {
+                "buildType": "apk"
+            }
+        },
         "preview": {
             "android": {
                 "buildType": "apk"

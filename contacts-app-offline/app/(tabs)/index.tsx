@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import AdBanner from '../../components/AdBanner';
 import Dropdown from '../../components/Dropdown';
 import { MaritalStatus, useContacts } from '../../utils/context';
 import { useI18n } from '../../utils/i18n';
@@ -57,7 +58,7 @@ export default function HomeScreen() {
       searchContacts(trimmed).then(setSearchResults);
     }, 150);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, searchContacts]);
 
   const filteredContacts = searchQuery.trim() ? searchResults : contacts;
 
@@ -171,6 +172,8 @@ export default function HomeScreen() {
           <Plus size={24} color="#FFFFFF" />
         </Pressable>
       </View>
+
+      <AdBanner />
 
       <Modal
         animationType="slide"

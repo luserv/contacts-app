@@ -1,8 +1,21 @@
-import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
 export type Lang = 'es' | 'en';
 const LANG_KEY = 'app_language';
+
+// Almacenamiento compatible con web (localStorage) y nativo (expo-secure-store)
+const storage = {
+  getItem: async (key: string): Promise<string | null> => {
+    if (typeof localStorage !== 'undefined') return localStorage.getItem(key);
+    const SecureStore = await import('expo-secure-store');
+    return SecureStore.getItemAsync(key);
+  },
+  setItem: async (key: string, value: string): Promise<void> => {
+    if (typeof localStorage !== 'undefined') { localStorage.setItem(key, value); return; }
+    const SecureStore = await import('expo-secure-store');
+    return SecureStore.setItemAsync(key, value);
+  },
+};
 
 const translations = {
   es: {
@@ -160,6 +173,7 @@ const translations = {
       databaseDesc: 'Exportá una copia de seguridad o importá una base de datos existente.',
       exportBtn: '⬆ Exportar',
       importBtn: '⬇ Importar',
+      importVcfBtn: '📋 Importar VCF (v4.0)',
       language: 'Idioma',
       languageDesc: 'Seleccioná el idioma de la aplicación.',
       exportSuccess: 'Base de datos exportada correctamente.',
@@ -334,6 +348,7 @@ const translations = {
       databaseDesc: 'Export a backup or import an existing database.',
       exportBtn: '⬆ Export',
       importBtn: '⬇ Import',
+      importVcfBtn: '📋 Import VCF (v4.0)',
       language: 'Language',
       languageDesc: 'Select the app language.',
       exportSuccess: 'Database exported successfully.',
@@ -381,7 +396,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>('es');
 
   useEffect(() => {
-    SecureStore.getItemAsync(LANG_KEY).then(stored => {
+    storage.getItem(LANG_KEY).then(stored => {
       if (stored === 'es' || stored === 'en') {
         setLangState(stored);
       } else {
@@ -392,7 +407,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   const setLang = async (newLang: Lang) => {
     setLangState(newLang);
-    await SecureStore.setItemAsync(LANG_KEY, newLang);
+    await storage.setItem(LANG_KEY, newLang);
   };
 
   return (

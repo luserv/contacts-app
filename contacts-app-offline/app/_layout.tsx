@@ -1,42 +1,56 @@
-import { Stack } from "expo-router";
-import { SQLiteProvider } from 'expo-sqlite';
+import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect } from 'react';
 import { StatusBar } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { ContactsProvider, DB_NAME, initializeDatabase } from '../utils/context';
+import { AuthProvider, useAuth } from '../utils/authContext';
+import { ContactsProvider } from '../utils/context';
 import { I18nProvider } from '../utils/i18n';
-import { requestNotificationPermissions } from '../utils/notifications';
+import { checkBirthdaysOnStartup, requestNotificationPermissions } from '../utils/notifications';
+
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  const segments = useSegments();
+
+  useEffect(() => {
+    if (loading) return;
+    const inLogin = segments[0] === 'login';
+    if (!user && !inLogin) router.replace('/login');
+    if (user && inLogin) router.replace('/');
+  }, [user, loading, segments]);
+
+  return <>{children}</>;
+}
 
 export default function RootLayout() {
   useEffect(() => {
     requestNotificationPermissions();
+    checkBirthdaysOnStartup();
   }, []);
 
   return (
     <I18nProvider>
-    <SQLiteProvider
-      databaseName={DB_NAME}
-      onInit={initializeDatabase}
-    >
-      <ContactsProvider>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <StatusBar barStyle={'dark-content'} />
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{
-              headerShown: false,
-              animation: 'slide_from_right',
-              gestureEnabled: true,
-            }} />
-            <Stack.Screen
-              name="contact/[id]"
-              options={{
-                headerShown: true,
-              }}
-            />
-          </Stack>
-        </GestureHandlerRootView>
-      </ContactsProvider>
-    </SQLiteProvider>
+      <AuthProvider>
+        <ContactsProvider>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <StatusBar barStyle={'dark-content'} />
+            <AuthGate>
+              <Stack>
+                <Stack.Screen name="login" options={{ headerShown: false }} />
+                <Stack.Screen name="(tabs)" options={{
+                  headerShown: false,
+                  animation: 'slide_from_right',
+                  gestureEnabled: true,
+                }} />
+                <Stack.Screen
+                  name="contact/[id]"
+                  options={{ headerShown: true }}
+                />
+              </Stack>
+            </AuthGate>
+          </GestureHandlerRootView>
+        </ContactsProvider>
+      </AuthProvider>
     </I18nProvider>
   );
 }

@@ -1,6 +1,6 @@
 import { Link, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import BottomTabBar from '../../components/BottomTabBar';
 import ContactInfoCard from '../../components/contact/ContactInfoCard';
 import KeywordsCard from '../../components/contact/KeywordsCard';
@@ -16,7 +16,7 @@ export default function ContactDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { t } = useI18n();
-  const { getContact, getIdentityCards, getRelationships, getContactOrganizations, getContactPhones, getContactEmails, getContactKeywords, fetchContacts } = useContacts();
+  const { getContact, getIdentityCards, getRelationships, getContactOrganizations, getContactPhones, getContactEmails, getContactKeywords, fetchContacts, deleteContact } = useContacts();
 
   const [contact, setContact] = useState<ContactDetail | null>(null);
   const [identityCards, setIdentityCards] = useState<IdentityCard[]>([]);
@@ -28,6 +28,22 @@ export default function ContactDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editVisible, setEditVisible] = useState(false);
+
+  const handleDelete = () => {
+    const doDelete = async () => {
+      const ok = await deleteContact(id);
+      if (ok) router.replace('/');
+    };
+    if (typeof window !== 'undefined' && !(window as any).ReactNativeWebView) {
+      if (confirm(`¿Eliminar a ${contact?.first_name} ${contact?.surname}?`)) doDelete();
+    } else {
+      Alert.alert(
+        'Eliminar contacto',
+        `¿Eliminar a ${contact?.first_name} ${contact?.surname}?`,
+        [{ text: 'Cancelar', style: 'cancel' }, { text: 'Eliminar', style: 'destructive', onPress: doDelete }]
+      );
+    }
+  };
 
   useEffect(() => {
     if (id) loadAll();
@@ -109,9 +125,14 @@ export default function ContactDetailScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>{t.detail.details}</Text>
-            <Pressable style={styles.editButton} onPress={() => setEditVisible(true)}>
-              <Text style={styles.editButtonText}>{t.common.edit}</Text>
-            </Pressable>
+            <View style={styles.cardActions}>
+              <Pressable style={styles.editButton} onPress={() => setEditVisible(true)}>
+                <Text style={styles.editButtonText}>{t.common.edit}</Text>
+              </Pressable>
+              <Pressable style={styles.deleteButton} onPress={handleDelete}>
+                <Text style={styles.deleteButtonText}>{t.common.delete}</Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.infoRow}>
@@ -192,10 +213,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08, shadowRadius: 3, elevation: 2,
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  cardActions: { flexDirection: 'row', gap: 8 },
   cardTitle: { fontSize: 17, fontWeight: '600', color: '#333' },
 
   editButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#007AFF' },
   editButtonText: { color: '#007AFF', fontSize: 14, fontWeight: '600' },
+  deleteButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#FF3B30' },
+  deleteButtonText: { color: '#FF3B30', fontSize: 14, fontWeight: '600' },
 
   infoRow: { marginBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee', paddingBottom: 10 },
   label: { fontSize: 11, color: '#8E8E93', marginBottom: 3 },

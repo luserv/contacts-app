@@ -1,0 +1,29 @@
+# Dependencies (EAS installs these on their servers)
+node_modules/
+
+# IDE and editor files
+.claude/
+.cursor/
+.vscode/
+.idea/
+
+# Expo local cache
+.expo/
+
+# Electron (desktop build, not needed for mobile)
+electron/
+electron-builder.json
+release/
+
+# Build/dev scripts
+scripts/
+
+# Local database data
+data/
+*.db
+
+# Docs
+README.md
+
+# Misc
+,prettier
